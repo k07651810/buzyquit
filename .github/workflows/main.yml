@@ -1,0 +1,56 @@
+name: CI for SSH with Custom Domain (Cloudflare DNS)
+
+on: [push, workflow_dispatch]
+
+jobs:
+  setup-linux:
+    runs-on: ubuntu-latest
+    steps:
+    
+    - name: Update and Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unzip openssh-server wget
+
+    - name: Enable SSH
+      run: |
+        sudo systemctl enable ssh
+        sudo systemctl start ssh
+    
+    - name: Set Up User for SSH Access
+      run: |
+        sudo useradd -m -s /bin/bash adminn
+        echo "adminn:Admin@123" | sudo chpasswd
+        echo "adminn ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/adminn
+    
+    - name: Configure Firewall for SSH
+      run: |
+        sudo ufw allow OpenSSH
+        sudo ufw enable
+
+    - name: Get Public IP Address of the Instance
+      run: |
+        PUBLIC_IP=$(curl -s ifconfig.me)
+        echo "Public IP for SSH: $PUBLIC_IP"
+    
+    - name: Configure Cloudflare DNS for Custom Domain
+      run: |
+        DOMAIN_NAME="ubuntu.adwaitdeshpande.in"
+        CLOUDFLARE_ZONE_ID="${{ secrets.CLOUDFLARE_ZONE_ID }}"  # Replace with your Cloudflare Zone ID
+        CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"  # Cloudflare API Token for DNS modification
+
+        # Set the A record to point to the public IP address
+        curl -X PUT "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records" \
+          -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          -H "Content-Type: application/json" \
+          --data '{
+            "type": "A",
+            "name": "'"$DOMAIN_NAME"'",
+            "content": "'"$PUBLIC_IP"'",
+            "ttl": 120,
+            "proxied": false
+          }'
+
+    - name: Display SSH Command
+      run: |
+        echo "SSH Connection Command: ssh adminn@$DOMAIN_NAME"
